@@ -37,12 +37,12 @@ class AgenticRAG:
         print(f"Query to Intake Agent: {query}")
         
         results = self.document_store.query_data(query=query, n_results=3)
-        print(f"Results from Vector db: {results}")
+        # print(f"Results from Vector db: {results}")
         
         documents = results.get("documents", [[]])[0]
         if documents:
             answer = " ".join(documents)
-            print(f"Answer from Intake Agent: {answer}")
+            # print(f"Answer from Intake Agent: {answer}")
             return {"answer": answer, "source": "intake"}
 
         return {"input": query, "source": "forward_to_knowledge"}
@@ -63,9 +63,14 @@ class AgenticRAG:
             results = ddgs.text(query, max_results=5)
             snippets = [result['body'] for result in results]
         
+        print(f"Snippets from DuckDuckGo: {snippets}")
         answer = self.chain.invoke({'context':snippets, 'query':query})
         return {'input':query, 'source':'knowledge', 'answer':answer}
     
+    def _end_agent(self, state):
+        print("Finished at intake_agent with answer:")
+        print(state.get("answer"))
+        return state
 
     def _build_graph(self):
         """
@@ -73,23 +78,27 @@ class AgenticRAG:
         This graph defines the flow of the query through different agents.
         """
         def route_from_intake(state):
-            if state.get("source") == "forward_to_knowledge":
-                return "knowledge_agent"
-            return "end" 
+            next_step = "knowledge_agent" if state.get("source") == "forward_to_knowledge" else "end"
+            print("Routing to:", next_step)
+            return next_step
+
         graph = StateGraph(GraphState)
 
         graph.add_node('intake_agent', self._intake_agent)
         graph.add_node('knowledge_agent', self._knowledge_agent)
+        graph.add_node('end', self._end_agent)
         
         graph.add_conditional_edges(
             'intake_agent',
             route_from_intake,
-            {'knowledge_agent':'knowledge_agent'}
+            {'knowledge_agent':'knowledge_agent',
+             'end': 'end'}
         )
         
         graph.set_entry_point('intake_agent')
         graph.set_finish_point('knowledge_agent')
         graph.set_finish_point('intake_agent')
+        graph.set_finish_point('end')
 
         return graph.compile()
     
@@ -109,7 +118,9 @@ class AgenticRAG:
     
 
 if __name__ == "__main__":
-    rag = AgenticRAG(ChromaDB())
-    query = "What is the capital of France?"
+    db = ChromaDB()
+    rag = AgenticRAG(db)
+    # query = "What is the capital of France?"
+    query = "what are different algorithms in sparse graph decomposition?"
     result = rag.run(query)
     print(result)

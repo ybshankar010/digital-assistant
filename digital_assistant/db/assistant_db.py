@@ -3,22 +3,32 @@ from chromadb.utils import embedding_functions
 from .base import BaseAssistantDB
 from ..utils.constants import *
 
+from pathlib import Path
+
 class ChromaDB(BaseAssistantDB):
     """
     ChromaDB implementation of the Assistant to interact. This class provides methods
     to insert and query data in a ChromaDB database.
     """
+    _instance = None
+
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(ChromaDB, cls).__new__(cls)
+        return cls._instance
 
     def __init__(self, embedding_function=None):
-        self.client = chromadb.Client()
-        if not embedding_function:
-            print("No embedding function provided, using default SentenceTransformerEmbeddingFunction with model 'all-MiniLM-L6-v2'.")
-            self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
+        # Prevent reinitialization
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+        
+        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
                 model_name="all-MiniLM-L6-v2"
             )
-        else:
-            self.embedding_function = embedding_function
         
+        self.client = chromadb.PersistentClient(
+            path=CHROMADB_PATH
+        )
         self.collection = self.get_collection(collection_name=COLLECTION_NAME)
 
     def insert_data(self, content: str, metadata: dict):
@@ -28,6 +38,7 @@ class ChromaDB(BaseAssistantDB):
                 metadatas=[metadata],
                 ids=[str(hash(content))],
             )
+            print(self.collection.get()['ids'])
         except Exception as e:
             print(f"Error inserting data: {e}")
 
@@ -85,8 +96,6 @@ class ChromaDB(BaseAssistantDB):
         Initialize the ChromaDB database.
         This method is called to ensure the database is ready for use.
         """
-        self.client = chromadb.Client()
-        self.collection = self.get_collection(collection_name=COLLECTION_NAME)
         self.delete_data(ids=self.collection.get()['ids'])
         return
 
