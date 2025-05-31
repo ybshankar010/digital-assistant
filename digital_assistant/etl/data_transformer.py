@@ -51,12 +51,19 @@ class DataTransformer:
         print("Data transformation and insertion complete.")
         return data
 
-
-if __name__ == "__main__":
+def index_data():
+    """
+    Function to index data into the ChromaDB.
+    This function is used to load and transform data before inserting it into the database.
+    """
     db = ChromaDB()
     transformer = DataTransformer(db)
     transformer.load_data_into_db()
     ids,documents,metadatas,embeddings = db.get_all_data()
     print(f"Total documents in the database: {len(documents)}")
-    for id,document,metadata,embedding in zip(ids,documents,metadatas,embeddings):  # Print first 5 results
-        print("==========",id, "==========",metadata,"==========",document[:10],"==========",embedding[:10])
+    for id,document,metadata,embedding in zip(ids,documents,metadatas,embeddings):
+        print("==========",id, "==========",document[:10])
+
+
+if __name__ == "__main__":
+    index_data()
