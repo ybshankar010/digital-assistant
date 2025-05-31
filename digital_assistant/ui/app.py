@@ -1,10 +1,5 @@
-# import os
-# os.environ["STREAMLIT_WATCH_DISABLE_MODULES"] = "1"
-
 import streamlit as st
 st.set_page_config(page_title="Digital Assistant", layout="centered")
-# st.title("💬 Digital Assistant with Indexing")
-# st.query_params["disableWatchdogModules"] = "torch"
 
 from digital_assistant.db.assistant_db import ChromaDB
 from digital_assistant.etl.data_transformer import DataTransformer

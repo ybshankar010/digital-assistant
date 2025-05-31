@@ -12,36 +12,46 @@ class GraphState(TypedDict):
     source: Optional[str]
     answer: Optional[str]
 
-
-
 class AgenticRAG:
 
     def __init__(self,db: ChromaDB):
         self.document_store = db
         self.llm = OllamaLLM(model="gemma3:4b", temperature=0.1)
+        self.intake_agent_prompt = PromptTemplate.from_template(
+            "You are an intake agent. Your task is to process the user's query and return relevant information from the document store.\n\n"
+            "Retrieved chunks:\n{context}\n\n"
+            "Query: {query}\n\n"
+            "Answer: If you find relevant documents, return them as a single string."
+        )
+        self.intake_chain = self.intake_agent_prompt | self.llm
+        
         self.knowledge_agent_prompt = PromptTemplate.from_template(
             "You are a knowledge agent. Your task is to answer the user's query using the provided context.\n\n"
             "Context:\n{context}\n\n"
             "Query: {query}\n\n"
             "Answer:"
         )
-        self.chain = self.knowledge_agent_prompt | self.llm
+        self.knowledge_chain = self.knowledge_agent_prompt | self.llm
 
         self.graph = self._build_graph()
 
 
 
     def _intake_agent(self, state):
+        """
+        Initialize the intake agent with the duckduckgo search tool.
+        
+        Args:
+            state (dict): The state of the knowledge agent.
+        """
         query = state["input"]
         print(f"Query to Intake Agent: {query}")
         
         results = self.document_store.query_data(query=query, n_results=3)
-        # print(f"Results from Vector db: {results}")
         
         documents = results.get("documents", [[]])[0]
         if documents:
-            answer = " ".join(documents)
-            # print(f"Answer from Intake Agent: {answer}")
+            answer = self.intake_chain.invoke({'context': documents, 'query': query})
             return {"answer": answer, "source": "intake"}
 
         return {"input": query, "source": "forward_to_knowledge"}
@@ -63,7 +73,7 @@ class AgenticRAG:
             snippets = [result['body'] for result in results]
         
         print(f"Snippets from DuckDuckGo: {snippets}")
-        answer = self.chain.invoke({'context':snippets, 'query':query})
+        answer = self.knowledge_chain.invoke({'context':snippets, 'query':query})
         return {'input':query, 'source':'knowledge', 'answer':answer}
 
     def _build_graph(self):
