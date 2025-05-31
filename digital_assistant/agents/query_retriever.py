@@ -1,10 +1,9 @@
 from ..db.assistant_db import ChromaDB
 from duckduckgo_search import DDGS
-from langgraph.graph import StateGraph
+from langgraph.graph import StateGraph, START, END
 
 from langchain_ollama.llms import OllamaLLM
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnableSequence
 
 from typing import TypedDict, Optional
 
@@ -66,11 +65,6 @@ class AgenticRAG:
         print(f"Snippets from DuckDuckGo: {snippets}")
         answer = self.chain.invoke({'context':snippets, 'query':query})
         return {'input':query, 'source':'knowledge', 'answer':answer}
-    
-    def _end_agent(self, state):
-        print("Finished at intake_agent with answer:")
-        print(state.get("answer"))
-        return state
 
     def _build_graph(self):
         """
@@ -78,7 +72,7 @@ class AgenticRAG:
         This graph defines the flow of the query through different agents.
         """
         def route_from_intake(state):
-            next_step = "knowledge_agent" if state.get("source") == "forward_to_knowledge" else "end"
+            next_step = "knowledge_agent" if state.get("source") == "forward_to_knowledge" else END
             print("Routing to:", next_step)
             return next_step
 
@@ -86,19 +80,17 @@ class AgenticRAG:
 
         graph.add_node('intake_agent', self._intake_agent)
         graph.add_node('knowledge_agent', self._knowledge_agent)
-        graph.add_node('end', self._end_agent)
+        
+        graph.add_edge(START, 'intake_agent')
         
         graph.add_conditional_edges(
             'intake_agent',
             route_from_intake,
             {'knowledge_agent':'knowledge_agent',
-             'end': 'end'}
+             END: END}
         )
-        
-        graph.set_entry_point('intake_agent')
-        graph.set_finish_point('knowledge_agent')
-        graph.set_finish_point('intake_agent')
-        graph.set_finish_point('end')
+
+        graph.add_edge('knowledge_agent', END)
 
         return graph.compile()
     
