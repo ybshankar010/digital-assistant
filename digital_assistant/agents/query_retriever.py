@@ -10,6 +10,7 @@ from typing import TypedDict, Optional
 class GraphState(TypedDict):
     input: str
     source: Optional[str]
+    intent: Optional[str]
     answer: Optional[str]
 
 class AgenticRAG:
@@ -17,6 +18,20 @@ class AgenticRAG:
     def __init__(self,db: ChromaDB):
         self.document_store = db
         self.llm = OllamaLLM(model="gemma3:4b", temperature=0.1)
+        self.intent_classifier_prompt = PromptTemplate.from_template(
+            "You are an intent classifier. Your task is to classify the user's query into one of the following intents: chitchat, knowledge.\n\n"
+            "Query: {query}\n\n"
+            "Classify the intent as either 'chitchat' or 'knowledge'. If the intent is not clear, return 'chitchat'."
+        )
+        self.intent_classifier_chain = self.intent_classifier_prompt | self.llm
+
+        self.chitchat_agent_prompt = PromptTemplate.from_template(
+            "You are a chitchat agent for Arxiv databot. Your task is to respond to the user's query in a friendly manner.\n\n"
+            "Query: {query}\n\n"
+            "Answer: Understand user query and respond in a friendly manner. If the query is not related to knowledge, respond with 'I'm just a bot, on top of arxiv data, your answer is beyond my scope!'\n\n"
+        )
+        self.chitchat_chain = self.chitchat_agent_prompt | self.llm
+
         self.intake_agent_prompt = PromptTemplate.from_template(
             "You are an intake agent. Your task is to process the user's query and return relevant information from the document store.\n\n"
             "Retrieved chunks:\n{context}\n\n"
@@ -36,6 +51,28 @@ class AgenticRAG:
         self.graph = self._build_graph()
 
 
+    def _intent_classifier(self, state):
+        """
+        Classify the intent of the user's query.
+        Args:
+            state (dict): The state of the knowledge agent.
+        """
+        query = state["input"]
+        print(f"Classifying intent for query: {query}")
+        intent = self.intent_classifier_chain.invoke({'query': query})
+        print(f"Classified intent: {intent}")
+        return {input:query, 'intent': intent}
+    
+    def _chitchat_agent(self, state):
+        """
+        Handle chitchat queries.
+        Args:
+            state (dict): The state of the knowledge agent.
+        """
+        query = state["input"]
+        print(f"Chitchat Agent received query: {query}")
+        answer = self.chitchat_chain.invoke({'query': query})
+        return {"input": query, "source": "chitchat", "answer": answer}
 
     def _intake_agent(self, state):
         """
@@ -85,21 +122,40 @@ class AgenticRAG:
             next_step = "knowledge_agent" if state.get("source") == "forward_to_knowledge" else END
             print("Routing to:", next_step)
             return next_step
+        
+        def route_intent(state):
+            next_step = state.get("intent","").strip()
+            print(f"Intent of the query ",next_step)
+            return next_step
 
         graph = StateGraph(GraphState)
 
+        graph.add_node('intent_classifier', self._intent_classifier)
+        graph.add_node('chitchat_agent', self._chitchat_agent)
         graph.add_node('intake_agent', self._intake_agent)
         graph.add_node('knowledge_agent', self._knowledge_agent)
         
-        graph.add_edge(START, 'intake_agent')
+        graph.add_edge(START, 'intent_classifier')
+
+        graph.add_conditional_edges(
+            "intent_classifier",
+            route_intent,
+            {
+                "chitchat" : "chitchat_agent",
+                "knowledge" : "intake_agent"
+            }
+        )
         
         graph.add_conditional_edges(
             'intake_agent',
             route_from_intake,
-            {'knowledge_agent':'knowledge_agent',
-             END: END}
+            {
+                'knowledge_agent':'knowledge_agent',
+                END: END
+            }
         )
-
+        
+        graph.add_edge('chitchat_agent',END)
         graph.add_edge('knowledge_agent', END)
 
         return graph.compile()
@@ -123,6 +179,7 @@ if __name__ == "__main__":
     db = ChromaDB()
     rag = AgenticRAG(db)
     # query = "What is the capital of France?"
-    query = "what are different algorithms in sparse graph decomposition?"
+    # query = "what are different algorithms in sparse graph decomposition?"
+    query = "Hi"
     result = rag.run(query)
     print(result)
