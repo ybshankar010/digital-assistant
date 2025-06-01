@@ -1,4 +1,5 @@
-DATA_FOLDER = "/home/bhavani/Desktop/code/digital-assistant/digital_assistant/etl/data/arxiv-metadata-oai-snapshot.json"
+# DATA_FOLDER = "/home/bhavani/Desktop/code/digital-assistant/digital_assistant/etl/data/arxiv-metadata-oai-snapshot.json"
+DATA_FOLDER = "/home/bhavani/Desktop/code/digital-assistant/digital_assistant/etl/data/imdb_top_1000.csv"
 
 COLLECTION_NAME = "arxiv_index"
 

@@ -38,7 +38,7 @@ class ChromaDB(BaseAssistantDB):
                 metadatas=[metadata],
                 ids=[str(hash(content))],
             )
-            print(self.collection.get()['ids'])
+            # print(self.collection.get()['ids'])
         except Exception as e:
             print(f"Error inserting data: {e}")
 
@@ -78,18 +78,19 @@ class ChromaDB(BaseAssistantDB):
         print(f"{self.collection.name} collection has {len(results['documents'])} documents.")
         return results["ids"],results["documents"], results["metadatas"],results["embeddings"]
     
-    def delete_data(self, ids: list):
+    def delete_data(self, ids: list, batch_size: int = 500):
         """
         Delete data from the collection by ids.
         
         Args:
             ids (list): A list of ids to delete from the collection.
         """
-        if not ids:
-            print("No ids provided for deletion.")
-            return
-        self.collection.delete(ids=ids)
+        for i in range(0, len(ids), batch_size):
+            batch = ids[i:i + batch_size]
+            self.collection.delete(ids=batch)
+        
         return
+
     
     def init_database(self):
         """
