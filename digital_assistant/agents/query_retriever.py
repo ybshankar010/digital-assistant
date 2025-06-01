@@ -38,10 +38,10 @@ class AgenticRAG:
         self.intent_classifier_chain = self.intent_classifier_prompt | self.llm
 
         self.chitchat_agent_prompt = PromptTemplate.from_template(
-            "You are a chitchat agent for Arxiv databot. Your task is to respond to the user's query in a friendly manner.\n\n"
+            "You are a chitchat agent for IMDB Movie databot. Your task is to respond to the user's query in a friendly manner.\n\n"
             "Previous conversation context:\n{conversation_history}\n\n"
             "Current Query: {query}\n\n"
-            "Answer: Understand user query and respond in a friendly manner considering the conversation context. If the query is not related to knowledge, respond with 'I'm just a bot, on top of arxiv data, your answer is beyond my scope!'\n\n"
+            "Answer: Understand user query and respond in a friendly manner considering the conversation context. If the query is not related to knowledge, respond with 'I'm just a bot, on top of imdb movie data, your answer is beyond my scope!'\n\n"
         )
         self.chitchat_chain = self.chitchat_agent_prompt | self.llm
 
