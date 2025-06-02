@@ -44,11 +44,18 @@ class ChromaDB(BaseAssistantDB):
 
         return
     
-    def query_data(self, query: str, n_results: int):
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=n_results,
-        )
+    def query_data(self, query: str, n_results: int,metadata_filter: dict = None):
+        query_args = {
+            "query_texts":[query],
+            "n_results" :n_results
+        }
+
+        if metadata_filter:
+            query_args["where"] = metadata_filter
+
+        
+        results = self.collection.query(**query_args)
+
         return results
     
     def get_collection(self, collection_name: str):
