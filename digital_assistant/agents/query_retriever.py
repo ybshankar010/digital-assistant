@@ -8,6 +8,7 @@ from langchain.memory import ConversationTokenBufferMemory
 from langchain.schema import BaseMessage, HumanMessage, AIMessage
 
 from typing import TypedDict, Optional, List
+from ..utils import clean_text
 
 class GraphState(TypedDict):
     input: str
@@ -45,10 +46,19 @@ class AgenticRAG:
         )
         self.chitchat_chain = self.chitchat_agent_prompt | self.llm
 
+        self.metadata_extraction_prompt = PromptTemplate.from_template(
+            "Extract structured filter conditions from the user's query. Output only valid JSON for the following fields if present: Genre, Released_Year, IMDB_Rating, Director, Star1, Certificate.\n"
+            "Query: {query}\n\n"
+            "Example output:\n{{\"Genre\": \"Thriller\", \"Released_Year\": {{\"$gte\": 2010}}, \"IMDB_Rating\": {{\"$gte\": 8}}}}\n\n"
+            "Output:"
+        )
+        self.metadata_extraction_chain = self.metadata_extraction_prompt | self.llm
+
         self.intake_agent_prompt = PromptTemplate.from_template(
             "You are an intake agent. Your task is to process the user's query and return relevant information from the document store.\n\n"
             "Previous conversation context:\n{conversation_history}\n\n"
-            "Retrieved chunks:\n{context}\n\n"
+            "Retrieved movie summaries:\n{context}\n\n"
+            "Retrieved movie titles:\n{titles}\n\n"
             "Current Query: {query}\n\n"
             "Answer: If you find relevant documents, summarize the information from the retrieved chunks and provide a concise answer considering the conversation context.\n\n"
         )
@@ -69,22 +79,23 @@ class AgenticRAG:
         """
         Get the conversation history from memory as a formatted string.
         """
-        try:
-            messages = self.memory.chat_memory.messages
-            if not messages:
-                return "No previous conversation."
+        return 
+        # try:
+        #     messages = self.memory.chat_memory.messages
+        #     if not messages:
+        #         return "No previous conversation."
             
-            history_parts = []
-            for message in messages:
-                if isinstance(message, HumanMessage):
-                    history_parts.append(f"Human: {message.content}")
-                elif isinstance(message, AIMessage):
-                    history_parts.append(f"Assistant: {message.content}")
+        #     history_parts = []
+        #     for message in messages:
+        #         if isinstance(message, HumanMessage):
+        #             history_parts.append(f"Human: {message.content}")
+        #         elif isinstance(message, AIMessage):
+        #             history_parts.append(f"Assistant: {message.content}")
             
-            return "\n".join(history_parts[-6:])  # Keep last 6 messages for context
-        except Exception as e:
-            print(f"Error retrieving conversation history: {e}")
-            return "No previous conversation."
+        #     return "\n".join(history_parts[-6:])  # Keep last 6 messages for context
+        # except Exception as e:
+        #     print(f"Error retrieving conversation history: {e}")
+        #     return "No previous conversation."
 
     def _add_to_memory(self, human_input: str, ai_response: str):
         """
@@ -154,16 +165,29 @@ class AgenticRAG:
         conversation_history = state.get("conversation_history", self._get_conversation_history())
         
         print(f"Query to Intake Agent: {query}")
-        
-        # Enhance query with conversation context for better retrieval
+        # Step 1: Extract filters
+        try:
+            metadata_response = self.metadata_extraction_chain.invoke({"query": query})
+            print(f"Extracted metadata response: {metadata_response}")
+            metadata_filter = clean_text(metadata_response) if metadata_response else {}
+            print(f"Extracted metadata filter: {metadata_filter}")
+        except Exception as e:
+            print(f"Metadata extraction failed: {e}")
+            metadata_filter = {}
+            
+        # Step 2: Enhanced query for embedding + filters for metadata
         enhanced_query = f"{conversation_history}\n\nCurrent question: {query}" if conversation_history != "No previous conversation." else query
+        results = self.document_store.query_data(query=enhanced_query, n_results=3, metadata_filter=metadata_filter)
         
-        results = self.document_store.query_data(query=enhanced_query, n_results=3)
-        
-        documents = results.get("documents", [[]])[0]
+        documents = results.get("documents", [])
+        metadatas = results.get("metadatas", [{}])
         if documents:
+            print(metadatas)
+            titles = [metadata["Series_Title"] for metadata in metadatas[0]]
+            print(titles)
             answer = self.intake_chain.invoke({
-                'context': documents, 
+                'context': documents,
+                'titles' : titles,
                 'query': query,
                 'conversation_history': conversation_history
             })

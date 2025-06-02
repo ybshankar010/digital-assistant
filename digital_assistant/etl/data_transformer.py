@@ -4,51 +4,16 @@ from io import StringIO
 from ..utils.constants import DATA_FOLDER
 from ..db.assistant_db import ChromaDB
 
-
-
 class DataTransformer:
     """
     DataTransformer class to handle the transformation of data before inserting it into the database.
     This class is responsible for transforming raw data into a format suitable for storage in ChromaDB.
     """
 
-    BATCH_SIZE = -1
-
     def __init__(self, db: ChromaDB,file_path: str = DATA_FOLDER):
         self.db = db
         self.db.init_database()
         self.file_path = file_path
-
-    # def load_data_into_db(self):
-    #     print(f"Indexing data from {self.file_path} into the vector db.")
-
-    #     batch_size = self.BATCH_SIZE if self.BATCH_SIZE > 0 else 1000
-    #     total_lines = 0
-    #     batch_num = 0
-
-    #     with open(self.file_path, 'r') as f:
-    #         while True:
-    #             lines = list()
-    #             try:
-    #                 for _ in range(batch_size):
-    #                     lines.append(next(f))
-    #             except StopIteration:
-    #                 pass  # Reached end of file
-
-    #             if not lines:
-    #                 break  # No more data
-
-    #             batch_num += 1
-    #             json_str = StringIO(''.join(lines))  # Wrap in StringIO
-    #             df_batch = pd.read_json(json_str, lines=True)
-    #             print(f"Processing batch {batch_num} with {len(df_batch)} records.")
-
-    #             self._transform_data(df_batch)
-    #             total_lines += len(df_batch)
-
-    #     print(f"Finished indexing {total_lines} total lines from {self.file_path}.")
-
-    #     return total_lines
 
     def load_data_into_db(self):
         print(f"Indexing data from {self.file_path} into the vector db.")
@@ -64,22 +29,37 @@ class DataTransformer:
 
     
     def _transform_data(self, data):
-        """
-        Transform the data into a format suitable for storage in ChromaDB.
-        """
+        numeric_fields = ["Released_Year", "IMDB_Rating", "Meta_score", "No_of_Votes", "Gross"]
+
+        # Clean up specific fields
+        for field in numeric_fields:
+            if field in data.columns:
+                data[field] = pd.to_numeric(data[field], errors='coerce')  # Coerce invalid to NaN
+
         for _, row in data.iterrows():
             content = row.get('Overview', '')
-            metadata = row.to_dict()
-            metadata.pop('Overview', None)
-            cleaned_meta_data = { k: v for k, v in row.items() if isinstance(v, (str, int, float, bool)) and v is not None}
+            if not content:
+                continue
 
-            # print(f"Processing index : {metadata}")
+            # Prepare typed metadata
+            metadata = {}
+            for col, val in row.items():
+                if col == "Overview" or col == "Poster_Link":
+                    continue
+                if pd.notna(val):
+                    if col in numeric_fields:
+                        try:
+                            metadata[col] = float(val) if '.' in str(val) else int(val)
+                        except:
+                            continue  # Skip invalid values
+                    else:
+                        metadata[col] = str(val).strip()
 
-            if content:
-                self.db.insert_data(content=content, metadata=cleaned_meta_data)
-                # print(f"Inserted data for index {index}: {content[:50]}")
+            self.db.insert_data(content=content, metadata=metadata)
+
         print("Data transformation and insertion complete.")
         return data
+
 
 def index_data():
     """
