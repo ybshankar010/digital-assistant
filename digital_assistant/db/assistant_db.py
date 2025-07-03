@@ -1,9 +1,7 @@
 import chromadb
 from chromadb.utils import embedding_functions
-from .base import BaseAssistantDB
-from ..utils.constants import *
-
-from pathlib import Path
+from digital_assistant.db.base import BaseAssistantDB
+from digital_assistant.utils.constants import *
 
 class ChromaDB(BaseAssistantDB):
     """
@@ -45,6 +43,7 @@ class ChromaDB(BaseAssistantDB):
         return
     
     def query_data(self, query: str, n_results: int,metadata_filter: dict = None):
+        print(f"Querying for: {query} with n_results: {n_results} and metadata_filter: {metadata_filter}")
         query_args = {
             "query_texts":[query],
             "n_results" :n_results

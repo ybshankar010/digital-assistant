@@ -1,4 +1,5 @@
-from ..db.assistant_db import ChromaDB
+from digital_assistant.db.assistant_db import ChromaDB
+from digital_assistant.logs.logger import SimpleLogger
 from duckduckgo_search import DDGS
 from langgraph.graph import StateGraph, START, END
 
@@ -22,6 +23,7 @@ class AgenticRAG:
     def __init__(self, db: ChromaDB, max_token_limit: int = 2000):
         self.document_store = db
         self.llm = OllamaLLM(model="gemma3:4b", temperature=0.1)
+        self.logger = SimpleLogger(self.__class__.__name__, level="debug")
         
         # Initialize memory with token buffer
         self.memory = ConversationTokenBufferMemory(
@@ -47,11 +49,24 @@ class AgenticRAG:
         self.chitchat_chain = self.chitchat_agent_prompt | self.llm
 
         self.metadata_extraction_prompt = PromptTemplate.from_template(
-            "Extract structured filter conditions from the user's query. Output only valid JSON for the following fields if present: Genre, Released_Year, IMDB_Rating, Director, Star1, Certificate.\n"
+            "Extract structured filter conditions from the user's query. "
+            "Output only valid JSON using these fields if present: Genre, Released_Year, IMDB_Rating, Director, Star1, Certificate, Series_Title. "
+            "If there is only one condition, output it directly as a JSON object. "
+            "If there are two or more conditions, wrap them inside an \"$and\" array. "
+            "Use operators like \"$gte\" or \"$lte\" where appropriate.\n\n"
             "Query: {query}\n\n"
-            "Example output:\n{{\"Genre\": \"Thriller\", \"Released_Year\": {{\"$gte\": 2010}}, \"IMDB_Rating\": {{\"$gte\": 8}}}}\n\n"
+            "Example (single condition):\n"
+            "{{\"Series_Title\": \"21 Grams\"}}\n\n"
+            "Example (multiple conditions):\n"
+            "{{\n"
+            "  \"$and\": [\n"
+            "    {{\"Genre\": \"Thriller\"}},\n"
+            "    {{\"IMDB_Rating\": {{\"$gte\": 8}}}}\n"
+            "  ]\n"
+            "}}\n\n"
             "Output:"
         )
+
         self.metadata_extraction_chain = self.metadata_extraction_prompt | self.llm
 
         self.intake_agent_prompt = PromptTemplate.from_template(
@@ -60,7 +75,8 @@ class AgenticRAG:
             "Retrieved movie summaries:\n{context}\n\n"
             "Retrieved movie titles:\n{titles}\n\n"
             "Current Query: {query}\n\n"
-            "Answer: If you find relevant documents, summarize the information from the retrieved chunks and provide a concise answer considering the conversation context.\n\n"
+            "Instructions: Summarize the information from the retrieved chunks and provide a concise, direct answer to the user considering the conversation context. If no relevant documents are found, reply with 'No relevant information found.'\n\n"
+            "Answer:"
         )
         self.intake_chain = self.intake_agent_prompt | self.llm
         
@@ -79,7 +95,7 @@ class AgenticRAG:
         """
         Get the conversation history from memory as a formatted string.
         """
-        return 
+        return "No previous conversation."  # Default message if no history exists
         # try:
         #     messages = self.memory.chat_memory.messages
         #     if not messages:
@@ -105,7 +121,7 @@ class AgenticRAG:
             self.memory.chat_memory.add_user_message(human_input)
             self.memory.chat_memory.add_ai_message(ai_response)
         except Exception as e:
-            print(f"Error adding to memory: {e}")
+            self.logger.error(f"Error adding to memory: {e}")
 
     def _intent_classifier(self, state):
         """
@@ -116,12 +132,12 @@ class AgenticRAG:
         query = state["input"]
         conversation_history = self._get_conversation_history()
         
-        print(f"Classifying intent for query: {query}")
+        self.logger.debug(f"Classifying intent for query: {query}")
         intent = self.intent_classifier_chain.invoke({
             'query': query,
             'conversation_history': conversation_history
         })
-        print(f"Classified intent: {intent}")
+        self.logger.debug(f"Classified intent: {intent}")
         
         return {
             "input": query, 
@@ -138,7 +154,7 @@ class AgenticRAG:
         query = state["input"]
         conversation_history = state.get("conversation_history", self._get_conversation_history())
         
-        print(f"Chitchat Agent received query: {query}")
+        self.logger.debug(f"Chitchat Agent received query: {query}")
         answer = self.chitchat_chain.invoke({
             'query': query,
             'conversation_history': conversation_history
@@ -164,34 +180,45 @@ class AgenticRAG:
         query = state["input"]
         conversation_history = state.get("conversation_history", self._get_conversation_history())
         
-        print(f"Query to Intake Agent: {query}")
+        self.logger.debug(f"Query to Intake Agent: {query}")
         # Step 1: Extract filters
         try:
             metadata_response = self.metadata_extraction_chain.invoke({"query": query})
-            print(f"Extracted metadata response: {metadata_response}")
+            self.logger.debug(f"Extracted metadata response: {metadata_response}")
             metadata_filter = clean_text(metadata_response) if metadata_response else {}
-            print(f"Extracted metadata filter: {metadata_filter}")
+            self.logger.debug(f"Extracted metadata filter: {metadata_filter}")
         except Exception as e:
-            print(f"Metadata extraction failed: {e}")
+            self.logger.error(f"Metadata extraction failed: {e}")
             metadata_filter = {}
             
         # Step 2: Enhanced query for embedding + filters for metadata
         enhanced_query = f"{conversation_history}\n\nCurrent question: {query}" if conversation_history != "No previous conversation." else query
+        self.logger.debug(enhanced_query)
         results = self.document_store.query_data(query=enhanced_query, n_results=3, metadata_filter=metadata_filter)
         
-        documents = results.get("documents", [])
+        documents = results.get("documents", [[]])
         metadatas = results.get("metadatas", [{}])
-        if documents:
-            print(metadatas)
-            titles = [metadata["Series_Title"] for metadata in metadatas[0]]
-            print(titles)
+        self.logger.debug(f"Documents retrieved: {len(documents)} items")
+        self.logger.debug(f"Total document size: {len(str(documents))} characters")
+        
+        if documents and documents[0]:
+            self.logger.debug(f"Results found: {results}")
+            self.logger.debug(f"meta data :: {metadatas}")
+            titles = ", ".join(metadata["Series_Title"] for metadata in metadatas[0])
+            self.logger.debug(f"Titles :: {titles}")
+            flattened_documents = "\n\n".join(doc[0] if isinstance(doc, list) else doc for doc in documents)
+            context_str = flattened_documents[:2000]
+            self.logger.debug(f"Context for intake agent: {context_str[:500]}...")
+
             answer = self.intake_chain.invoke({
-                'context': documents,
+                'context': context_str,
                 'titles' : titles,
                 'query': query,
                 'conversation_history': conversation_history
             })
             
+            self.logger.debug(f"Intake Agent answer: {answer}")
+
             # Add to memory
             self._add_to_memory(query, answer)
             
@@ -218,7 +245,7 @@ class AgenticRAG:
         query = state["input"]
         conversation_history = state.get("conversation_history", self._get_conversation_history())
         
-        print(f"Query to Knowledge Agent: {query}")
+        self.logger.debug(f"Query to Knowledge Agent: {query}")
         
         # Enhance query with conversation context for better search
         enhanced_query = f"{query} {conversation_history}" if conversation_history != "No previous conversation." else query
@@ -227,7 +254,8 @@ class AgenticRAG:
             results = ddgs.text(enhanced_query[:500], max_results=5)  # Limit query length
             snippets = [result['body'] for result in results]
         
-        print(f"Snippets from DuckDuckGo: {snippets}")
+        self.logger.info(f"Executing duckduckgo search for query: {query}")
+        self.logger.debug(f"Snippets from DuckDuckGo: {snippets}")
         answer = self.knowledge_chain.invoke({
             'context': snippets, 
             'query': query,
@@ -251,12 +279,12 @@ class AgenticRAG:
         """
         def route_from_intake(state):
             next_step = "knowledge_agent" if state.get("source") == "forward_to_knowledge" else END
-            print("Routing to:", next_step)
+            self.logger.debug(f"Routing to: {next_step}")
             return next_step
         
         def route_intent(state):
             next_step = state.get("intent", "").strip()
-            print(f"Intent of the query: {next_step}")
+            self.logger.debug(f"Intent of the query: {next_step}")
             return next_step
 
         graph = StateGraph(GraphState)
@@ -310,7 +338,8 @@ class AgenticRAG:
         Clear the conversation memory.
         """
         self.memory.clear()
-        print("Conversation memory cleared.")
+        self.logger.debug("Conversation memory cleared.")
+        return
     
     def get_memory_summary(self):
         """
