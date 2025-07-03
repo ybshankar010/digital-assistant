@@ -176,3 +176,7 @@ cython_debug/
 digital_assistant/etl/data/
 
 chroma_store/
+
+checkpoint_outputs.json
+deepeval_imdb_results.json
+deepeval_imdb_results.csv
