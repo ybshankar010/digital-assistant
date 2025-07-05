@@ -19,7 +19,6 @@ class KnowledgeAgent(BaseAgent):
         )
         self.knowledge_chain = self.knowledge_agent_prompt | self.llm
 
-            
 
     def invoke(self, state : GraphState):
         """
@@ -42,12 +41,13 @@ class KnowledgeAgent(BaseAgent):
         
         self.logger.info(f"Executing duckduckgo search for query: {query}")
         self.logger.debug(f"Snippets from DuckDuckGo: {snippets}")
-        answer = self.knowledge_chain.invoke({
+        response = self.knowledge_chain.invoke({
             'context': snippets, 
             'query': query,
             'conversation_history': conversation_history
         })
         
+        answer = response.content.strip()
         # Add to memory
         self._add_to_memory(query, answer)
         

@@ -2,6 +2,7 @@ import chromadb
 from chromadb.utils import embedding_functions
 from digital_assistant.db.base import BaseAssistantDB
 from digital_assistant.utils.constants import *
+from digital_assistant.logs.logger import SimpleLogger
 
 class ChromaDB(BaseAssistantDB):
     """
@@ -28,6 +29,7 @@ class ChromaDB(BaseAssistantDB):
             path=CHROMADB_PATH
         )
         self.collection = self.get_collection(collection_name=COLLECTION_NAME)
+        self.logger = SimpleLogger(self.__class__.__name__, level="debug")
 
     def insert_data(self, content: str, metadata: dict):
         try:
@@ -38,12 +40,12 @@ class ChromaDB(BaseAssistantDB):
             )
             # print(self.collection.get()['ids'])
         except Exception as e:
-            print(f"Error inserting data: {e}")
+            self.logger.error(f"Error inserting data: {e}")
 
         return
     
     def query_data(self, query: str, n_results: int,metadata_filter: dict = None):
-        print(f"Querying for: {query} with n_results: {n_results} and metadata_filter: {metadata_filter}")
+        self.logger.debug(f"Querying for: {query} with n_results: {n_results} and metadata_filter: {metadata_filter}")
         query_args = {
             "query_texts":[query],
             "n_results" :n_results
@@ -51,9 +53,8 @@ class ChromaDB(BaseAssistantDB):
 
         if metadata_filter:
             query_args["where"] = metadata_filter
-
         
-        results = self.collection.query(**query_args)
+        results = self.collection.query(**query_args, include=["documents","metadatas","distances"])
 
         return results
     
@@ -81,7 +82,7 @@ class ChromaDB(BaseAssistantDB):
             list: A list of all documents in the collection.
         """
         results = self.collection.get(include=["documents", "metadatas", "embeddings"])
-        print(f"{self.collection.name} collection has {len(results['documents'])} documents.")
+        self.logger.debug(f"{self.collection.name} collection has {len(results['documents'])} documents.")
         return results["ids"],results["documents"], results["metadatas"],results["embeddings"]
     
     def delete_data(self, ids: list, batch_size: int = 500):

@@ -1,15 +1,10 @@
 from digital_assistant.db.assistant_db import ChromaDB
 from digital_assistant.logs.logger import SimpleLogger
-from duckduckgo_search import DDGS
-from langgraph.graph import StateGraph, START, END
-
-from langchain_ollama.llms import OllamaLLM
-from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 from langchain.memory import ConversationTokenBufferMemory
-from langchain.schema import BaseMessage, HumanMessage, AIMessage
 
-from typing import TypedDict, Optional, List
-from digital_assistant.utils import clean_text,setup_llm
+from typing import TypedDict, Optional
+from digital_assistant.utils import setup_llm
 from abc import ABC, abstractmethod
 
 class GraphState(TypedDict):
@@ -27,9 +22,20 @@ class BaseAgent(ABC):
 
     def __init__(self, db: ChromaDB, max_token_limit: int = 2000):
         self.document_store = db
-        self.llm = setup_llm("gemma3:4b", temperature=0.1)
         self.logger = SimpleLogger(self.__class__.__name__, level="debug")
-        
+
+        self.schema = {
+            "type": "object",
+            "properties": {
+                "thought": {"type": "string"},
+                "answer":  {"type": "string"}
+            },
+            "required": ["thought", "answer"]
+        }
+
+        self.output_parser = JsonOutputParser(json_schema=self.schema)
+        self.llm = setup_llm("llama3.1:8b", temperature=0.1)
+
         # Initialize memory with token buffer
         self.memory = ConversationTokenBufferMemory(
             llm=self.llm,

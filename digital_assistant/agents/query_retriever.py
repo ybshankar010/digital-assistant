@@ -87,11 +87,12 @@ if __name__ == "__main__":
     db = ChromaDB()
     rag = AgenticRAG(db)
     
-    # Test conversation with memory
     queries = [
         "Hi, I'm interested in machine learning",
-        "What are different algorithms in sparse graph decomposition?",
-        "Can you tell me more about the first algorithm you mentioned?",
+        "Okay can you talk about movie bahubali",
+        "What is the capital of India?",
+        "Can you tell me about the movie Inception?",
+        "What is the weather like today?",
         "Thanks for the help!"
     ]
     
@@ -100,11 +101,3 @@ if __name__ == "__main__":
         result = rag.run(query)
         print(f"Answer: {result.get('answer', 'No answer')}")
         print(f"Source: {result.get('source', 'Unknown')}")
-        
-        # Show memory summary
-        memory_summary = rag.get_memory_summary()
-        print(f"Memory: {memory_summary['message_count']} messages stored")
-    
-    # Clear memory example
-    print("\n--- Clearing Memory ---")
-    rag.clear_memory()

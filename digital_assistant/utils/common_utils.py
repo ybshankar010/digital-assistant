@@ -2,6 +2,9 @@ import re
 import json
 
 from langchain_ollama.llms import OllamaLLM
+from langchain_openai import ChatOpenAI
+from dotenv import load_dotenv
+load_dotenv()
 
 def clean_text(raw_response: str) -> dict:
     """
@@ -23,7 +26,7 @@ def clean_text(raw_response: str) -> dict:
         print(f"Failed to parse metadata filter: {e}\nRaw response: {raw_response}")
         return {}
     
-def setup_llm(model_name: str, temperature: float = 0.1):
+def setup_llm(model_name: str = "llama3.1:8b", temperature: float = 0.1):
     """
     Setup the LLM with the specified model name and temperature.
     
@@ -32,7 +35,34 @@ def setup_llm(model_name: str, temperature: float = 0.1):
         temperature (float): The temperature setting for the LLM.
         
     Returns:
-        OllamaLLM: An instance of the OllamaLLM with the specified settings.
+        llm instance with specified settings.
     """
+    llm = ChatOpenAI(
+        model_name=model_name,
+        temperature=temperature
+    )
+    # llm = OllamaLLM(
+    #     model=model_name,
+    #     temperature=temperature,
+    #     format="json"
+    # )
     
-    return OllamaLLM(model=model_name, temperature=temperature)
+    return llm
+
+def get_overview_content(doc: str) -> str:
+    """
+    Extracts the first 200 characters from the overview content.
+
+    Args:
+        doc (str): The overview content from which to extract.
+        
+    Returns:
+        str: The first 200 characters of the overview, or an empty string if the overview is None.
+    """
+    overview_regex = re.compile(r"overview:\s*", re.IGNORECASE)
+    m = overview_regex.search(doc)
+    return doc[m.end():].lstrip() if m else doc
+
+if __name__ == "__main__":
+    llm = setup_llm()
+    print(llm.invoke("Return {\"answer\": \"test\"} as JSON"))
