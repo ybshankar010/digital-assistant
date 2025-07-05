@@ -3,7 +3,7 @@ from digital_assistant.logs.logger import SimpleLogger
 from digital_assistant.agents.base_agent import BaseAgent, GraphState
 
 from langchain_core.prompts import PromptTemplate
-from duckduckgo_search import DDGS
+from langchain.output_parsers import OutputFixingParser
 
 class ChitchatAgent(BaseAgent):
 
@@ -15,6 +15,7 @@ class ChitchatAgent(BaseAgent):
             "Current Query: {query}\n\n"
             "Answer: Understand user query and respond in a friendly manner considering the conversation context. If the query is not related to knowledge, respond with 'I'm just a bot, on top of imdb movie data, your answer is beyond my scope!'\n\n"
         )
+        
         self.chitchat_chain = self.chitchat_agent_prompt | self.llm
 
             
@@ -29,10 +30,13 @@ class ChitchatAgent(BaseAgent):
         conversation_history = state.get("conversation_history", self._get_conversation_history())
         
         self.logger.debug(f"Chitchat Agent received query: {query}")
-        answer = self.chitchat_chain.invoke({
+        response = self.chitchat_chain.invoke({
             'query': query,
             'conversation_history': conversation_history
         })
+        
+        answer = response.content.strip()
+        self.logger.debug(f"Chitchat Agent response: {answer}")
         
         # Add to memory
         self._add_to_memory(query, answer)
