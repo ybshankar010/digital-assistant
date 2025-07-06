@@ -167,6 +167,12 @@ class IntakeAgent(BaseAgent):
         Merge two Chroma query() result dicts (single-query variant) and
         return everything sorted by ascending distance.
         """
+        if not preferred:
+            return fallback
+        
+        if not fallback:
+            return preferred
+        
         #  Extract the single inner lists -------------------------------
         p_ids, f_ids = preferred["ids"][0],        fallback["ids"][0]
         p_docs, f_docs = preferred["documents"][0], fallback["documents"][0]
@@ -221,11 +227,17 @@ class IntakeAgent(BaseAgent):
         Returns:
             tuple: A tuple containing a list of documents and their associated metadata.
         """
-        count_to_fetch = 5
-        results_with_metadata = self.document_store.query_data(query=query, n_results=count_to_fetch, metadata_filter=metadata)
+
+        try:
+            count_to_fetch = 5
+            results_with_metadata = self.document_store.query_data(query=query, n_results=count_to_fetch, metadata_filter=metadata)
+        except Exception as e:
+            self.logger.error(f"Error querying document store with metadata filter: {e}")
+            results_with_metadata = {}
+
         if not results_with_metadata:
             self.logger.debug("No documents found in the store for the given query. & metadata.")
-            count_to_fetch = 0
+            count_to_fetch = 10
         
         results_without_metadata = self.document_store.query_data(query=query, n_results=count_to_fetch)
         if not results_without_metadata:

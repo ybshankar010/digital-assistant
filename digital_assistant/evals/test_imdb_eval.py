@@ -11,13 +11,67 @@ from digital_assistant.logs.logger import SimpleLogger
 from dotenv import load_dotenv
 load_dotenv()
 
+# custom_openai_chat_llm.py
+import os
+from openai import OpenAI 
+
+from deepeval.models import DeepEvalBaseLLM
+
+
+class CustomOpenAIChatLLM(DeepEvalBaseLLM):
+    """
+    DeepEval adapter around any OpenAI ChatCompletion model.
+    Keeps its *own* client so you can run evals on a different API key.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "gpt-4o",
+        api_key: str | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 512,
+    ):
+        self.model_name = model_name
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        api_key = api_key or os.getenv("OPENAI_EVAL_KEY")
+
+        self.client = OpenAI(api_key=api_key)
+
+        self._loaded = True             # nothing heavy to “load”
+
+    # ---- DeepEval required hooks -----------------------------------------
+    def load_model(self):
+        return self.client or "openai-module"
+
+    def generate(self, prompt: str) -> str:
+        rsp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+        )
+        return rsp.choices[0].message.content.strip()
+
+    async def a_generate(self, prompt: str) -> str:   # optional async hook
+        return self.generate(prompt)
+
+    def get_model_name(self):
+        return f"OpenAI-{self.model_name}"
+
+judge_llm = CustomOpenAIChatLLM(
+    model_name="gpt-4o",
+    api_key=os.getenv("OPENAI_API_EVAL_KEY")
+)
+
 # ─── 0. Setup logging ───────────────────────────────────────────────────────
 logger = SimpleLogger(__name__, level="debug")
 logger.info("Starting DeepEval for RAG agent")
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
 # ─── 1. Load test data from CSV ─────────────────────────────────────────────
-qna_file_path = os.path.join(current_dir,"Sample_Q&A.csv")
+test_cases_file = "Sample_Q&A.csv"
+qna_file_path = os.path.join(current_dir,test_cases_file)
 
 test_data = []
 with open(qna_file_path, "r", encoding="utf-8") as f:
@@ -41,7 +95,7 @@ def get_bot_answer(idx: int, query: str) -> str:
     return answer
 
 # ─── 3. Create DeepEval test cases ───────────────────────────────────────────
-checkpoint_file = "checkpoint_outputs.json"
+checkpoint_file = "checkpoint_outputs_without_rrf.json"
 test_cases = []
 
 if os.path.exists(checkpoint_file):
@@ -93,11 +147,11 @@ metrics = [
     GEval(
         name="Correctness",
         criteria="Check if the actual output matches the expected output.",
-        model="gpt-4o",
+        model=judge_llm,
         evaluation_params=[LLMTestCaseParams.ACTUAL_OUTPUT, LLMTestCaseParams.EXPECTED_OUTPUT],
         threshold=0.5
     ),
-    AnswerRelevancyMetric(threshold=0.7)
+    AnswerRelevancyMetric(model=judge_llm,threshold=0.7)
 ]
 
 # ─── 5. Run evaluation ─────────────────────────────────────────────────────
@@ -152,12 +206,12 @@ output = {
 }
 
 # File paths
-json_file_path = os.path.join(current_dir, "deepeval_imdb_results.json")
-csv_file_path = os.path.join(current_dir, "deepeval_imdb_results.csv")
+# json_file_path = os.path.join(current_dir, "deepeval_imdb_results.json")
+csv_file_path = os.path.join(current_dir, "deepeval_imdb_results_without_rrf.csv")
 
 # Save full results as JSON
-with open(json_file_path, "w", encoding="utf-8") as f:
-    json.dump(output, f, indent=2)
+# with open(json_file_path, "w", encoding="utf-8") as f:
+#     json.dump(output, f, indent=2)
 
 # Save per-case results as CSV
 fieldnames = list(detailed[0].keys()) if detailed else ["query", "bot_answer", "expected"]

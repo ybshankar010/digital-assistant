@@ -1,3 +1,4 @@
+import os
 import re
 import json
 
@@ -42,7 +43,9 @@ def setup_llm(model_name: str = "llama3.1:8b", temperature: float = 0.1):
     """
     llm = ChatOpenAI(
         model_name=model_name,
-        temperature=temperature
+        temperature=temperature,
+        base_url=os.getenv("OLLAMA_OPENAI_API_BASE", "http://localhost:11434/v1"),
+        api_key=os.getenv("OLLAMA_OPENAI_API_KEY", "ollama")
     )
     # llm = OllamaLLM(
     #     model=model_name,
