@@ -11,12 +11,12 @@ class IntentClassifierAgent(BaseAgent):
         super().__init__(db)
         
         self.intent_classifier_prompt = PromptTemplate.from_template(
-             "You are an intent classifier. Your task is to classify the user's query into one of the following intents: chitchat, knowledge.\n\n"
-             "Knowledge intent refers to queries that seek factual information, about movies topic alone. Imdb data is indexed and can be answered when knowledge intent is choosen.\n"
-             "Previous conversation context:\n{conversation_history}\n\n"
-             "Current Query: {query}\n\n"
-             "Classify the intent as either 'chitchat' or 'knowledge'. If the intent is not clear, return 'chitchat'."
-             "Just return the intent as a single word without any additional text.\n\n"
+            "You are an intent classifier. Your task is to classify the user's query into one of the following intents: chitchat, knowledge.\n\n"
+            "Knowledge intent refers to queries that seek factual information, about movies topic alone. Imdb data is indexed and can be answered when knowledge intent is choosen.\n"
+            "Previous conversation context:\n{conversation_history}\n\n"
+            "Current Query: {query}\n\n"
+            "Classify the intent as either 'chitchat' or 'knowledge'. If the intent is not clear, return 'chitchat'."
+            "Just return the intent as a single word without any additional text.\n\n"
             "Answer:"
         )
 
