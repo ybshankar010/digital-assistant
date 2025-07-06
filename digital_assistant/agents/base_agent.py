@@ -48,7 +48,7 @@ class BaseAgent(ABC):
         """
         Get the conversation history from memory as a formatted string.
         """
-        return ""  # Default message if no history exists
+        return "No previous conversation."
         # try:
         #     messages = self.memory.chat_memory.messages
         #     if not messages:

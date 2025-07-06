@@ -88,12 +88,12 @@ if __name__ == "__main__":
     rag = AgenticRAG(db)
     
     queries = [
-        "Hi, I'm interested in machine learning",
+        # "Hi, I'm interested in machine learning",
         "Okay can you talk about movie bahubali",
-        "What is the capital of India?",
+        # "What is the capital of India?",
         "Can you tell me about the movie Inception?",
-        "What is the weather like today?",
-        "Thanks for the help!"
+        # "What is the weather like today?",
+        # "Thanks for the help!"
     ]
     
     for i, query in enumerate(queries):

@@ -6,6 +6,9 @@ from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 load_dotenv()
 
+from digital_assistant.logs.logger import SimpleLogger
+logger = SimpleLogger(__name__, level="debug")
+
 def clean_text(raw_response: str) -> dict:
     """
     Safely parse the LLM response and return a metadata filter dict.
@@ -20,10 +23,10 @@ def clean_text(raw_response: str) -> dict:
         if isinstance(metadata_filter, dict):
             return metadata_filter
         else:
-            print("Metadata response was not a dictionary.")
+            logger.debug("Metadata response was not a dictionary.")
             return {}
     except Exception as e:
-        print(f"Failed to parse metadata filter: {e}\nRaw response: {raw_response}")
+        logger.error(f"Failed to parse metadata filter: {e}\nRaw response: {raw_response}")
         return {}
     
 def setup_llm(model_name: str = "llama3.1:8b", temperature: float = 0.1):
@@ -65,4 +68,4 @@ def get_overview_content(doc: str) -> str:
 
 if __name__ == "__main__":
     llm = setup_llm()
-    print(llm.invoke("Return {\"answer\": \"test\"} as JSON"))
+    logger.info(llm.invoke("Return {\"answer\": \"test\"} as JSON"))
