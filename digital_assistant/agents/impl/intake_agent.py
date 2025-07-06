@@ -3,6 +3,10 @@ from digital_assistant.logs.logger import SimpleLogger
 from rank_bm25 import BM25Okapi
 from collections import defaultdict
 
+from collections import OrderedDict
+from typing import Dict, Any, List, Tuple
+
+
 from langchain_core.prompts import PromptTemplate
 
 from digital_assistant.utils.common_utils import clean_text,get_overview_content
@@ -14,12 +18,19 @@ class IntakeAgent(BaseAgent):
         super().__init__(db)
 
         self.metadata_extraction_prompt = PromptTemplate.from_template(
-            "Extract structured filter conditions from the user's query. "
-            "Output only valid JSON using these fields if present: Genre, Released_Year, IMDB_Rating, Director, Star1, Certificate, Series_Title. "
-            "If there is only one condition, output it directly as a JSON object. "
-            "If there are two or more conditions, wrap them inside an \"$and\" array. "
-            "Use operators like \"$gte\" or \"$lte\" where appropriate.\n\n"
-            "Query: {query}\n\n"
+            "You are an API that converts a movie question into a JSON metadata filter.\n"
+            "\n"
+            "## Allowed keys\n"
+            "Genre, Released_Year, IMDB_Rating, Director, Star1, Certificate, Series_Title\n"
+            "\n"
+            "## Output format (MUST follow)\n"
+            "1. Return ONLY valid JSON.\n"
+            "2. If one condition → {{\"Series_Title\":\"Bahubali\"}}\n"
+            "3. If many conditions → {{\"$and\":[{{\"Genre\":\"Action\"}},{{\"IMDB_Rating\":{{\"$gte\":8}}}}]}}\n"
+            "3. Use $gte / $lte for numeric ranges.\n"
+            "4. No markdown, code, or extra text.\n"
+            "5. If nothing matches, output {{}}.\n"
+            "\n"
             "Example (single condition):\n"
             "{{\"Series_Title\": \"21 Grams\"}}\n\n"
             "Example (multiple conditions):\n"
@@ -29,8 +40,19 @@ class IntakeAgent(BaseAgent):
             "    {{\"IMDB_Rating\": {{\"$gte\": 8}}}}\n"
             "  ]\n"
             "}}\n\n"
+            "**Donot include any python code or any other text in the output, just return the metadata as a single json without any additional text.**\n\n"
+            "Example (Negative case):\n"
+            "```python\n"
+            "import json\n"
+            "def extract_conditions(query):\n"
+            "# Define valid fields\n"
+            "valid_fields = [\"Genre\", \"Released_Year\", \"IMDB_Rating\", \"Director\", \"Star1\", \"Certificate\", \"Series_Title\"]"
+            "... <End code> ...\n"
+            "Query: {query}\n"
+            "\n"
             "Output:"
         )
+
 
         self.metadata_extraction_chain = self.metadata_extraction_prompt | self.llm
 
@@ -59,12 +81,14 @@ class IntakeAgent(BaseAgent):
         try:
             response = self.metadata_extraction_chain.invoke({"query": query})
             metadata_response = response.content.strip()
-            self.logger.debug(f"Extracted metadata response: {metadata_response}")
+            # self.logger.debug(f"Extracted metadata response: {metadata_response}")
             metadata_filter = clean_text(metadata_response) if metadata_response else {}
-            self.logger.debug(f"Extracted metadata filter: {metadata_filter}")
+            # self.logger.debug(f"Extracted metadata filter: {metadata_filter}")
         except Exception as e:
             self.logger.error(f"Metadata extraction failed: {e}")
             metadata_filter = {}
+        
+        return metadata_filter
 
     def _execute_intake_agent(self, query: str, document_list: list[str], titles_list :list,conversation_history: str) -> dict:
         """
@@ -136,6 +160,80 @@ class IntakeAgent(BaseAgent):
         reranked_documents = [documents[doc_id] for doc_id, _ in sorted_documents[:3]]
         reranked_titles = [titles[doc_id] for doc_id, _ in sorted_documents[:3]]
         return reranked_documents,reranked_titles
+        
+    def _merge_chroma_results(self,preferred: Dict[str, Any],
+                            fallback:  Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Merge two Chroma query() result dicts (single-query variant) and
+        return everything sorted by ascending distance.
+        """
+        #  Extract the single inner lists -------------------------------
+        p_ids, f_ids = preferred["ids"][0],        fallback["ids"][0]
+        p_docs, f_docs = preferred["documents"][0], fallback["documents"][0]
+        p_meta, f_meta = preferred["metadatas"][0], fallback["metadatas"][0]
+        p_dist, f_dist = preferred["distances"][0], fallback["distances"][0]
+
+        # Deduplicate while preserving order --------------------------
+        seen = OrderedDict()               # id -> (doc, meta, dist)
+        def ingest(ids, docs, meta, dist):
+            for i in range(len(ids)):
+                if ids[i] not in seen:
+                    seen[ids[i]] = (docs[i], meta[i], dist[i])
+
+        ingest(p_ids, p_docs, p_meta, p_dist)      # keep filtered first
+        ingest(f_ids, f_docs, f_meta, f_dist)      # then fallback extras
+
+        # Sort by distance (stable) -----------------------------------
+        sorted_items: List[Tuple[str, tuple]] = sorted(
+            seen.items(),
+            key=lambda item: item[1][2]           # distance is third element
+        )
+
+        # Unpack back into parallel lists -----------------------------
+        out_ids, out_docs, out_meta, out_dist = [], [], [], []
+        for doc_id, (doc, meta, dist) in sorted_items:
+            out_ids.append(doc_id)
+            out_docs.append(doc)
+            out_meta.append(meta)
+            out_dist.append(dist)
+
+        # Re-wrap in Chroma’s schema ----------------------------------
+        merged = {
+            "ids":       [out_ids],
+            "documents": [out_docs],
+            "metadatas": [out_meta],
+            "distances": [out_dist],
+            **{k: preferred[k] for k in preferred.keys()
+            if k not in {"ids", "documents", "metadatas", "distances"}}
+        }
+
+        return merged
+
+
+    def _get_documents_from_store(self, query: str, metadata: dict) -> tuple[list[str], list[str]]:
+        """
+        Retrieves documents from the document store based on the query and conversation history.
+        
+        Args:
+            query (str): The user's query to search for.
+            metadata (dict): Meta data filter that needs to be applied.
+            
+        Returns:
+            tuple: A tuple containing a list of documents and their associated metadata.
+        """
+        count_to_fetch = 5
+        results_with_metadata = self.document_store.query_data(query=query, n_results=count_to_fetch, metadata_filter=metadata)
+        if not results_with_metadata:
+            self.logger.debug("No documents found in the store for the given query. & metadata.")
+            count_to_fetch = 0
+        
+        results_without_metadata = self.document_store.query_data(query=query, n_results=count_to_fetch)
+        if not results_without_metadata:
+            self.logger.debug("No documents found in the store for the given query without metadata.")
+            return {}
+        
+        results = self._merge_chroma_results(results_with_metadata, results_without_metadata)
+        return results
 
     def invoke(self, state : GraphState):
         """
@@ -153,8 +251,8 @@ class IntakeAgent(BaseAgent):
             
         # Step 2: Enhanced query for embedding + filters for metadata
         enhanced_query = f"{conversation_history}\n\nCurrent question: {query}" if conversation_history != "No previous conversation." else query
-        self.logger.debug(f"query to get data from vector store {enhanced_query}")
-        results = self.document_store.query_data(query=enhanced_query, n_results=10, metadata_filter=metadata_filter)
+        self.logger.debug(f"Enhanced query with conversation history to get data from vector store {enhanced_query}")
+        results = self._get_documents_from_store(query=enhanced_query,metadata=metadata_filter)
         
         documents = results.get("documents", [[]])[0]
         metadatas = results.get("metadatas", [[{}]])[0]
@@ -164,7 +262,7 @@ class IntakeAgent(BaseAgent):
             embed_ranks = list(range(len(documents)))
             cleaned_documents = [get_overview_content(doc) for doc in documents]
             titles = [metadata["Series_Title"] for metadata in metadatas if "Series_Title" in metadata]
-            self.logger.debug(f"Cleaned documents: {cleaned_documents[:3]}...")
+            # self.logger.debug(f"Cleaned documents: {cleaned_documents[:3]}...")
             if self.rrf_enabled:
                 reranked_documents,reranked_titles = self._rerank_documents(query, cleaned_documents,titles, embed_ranks)
             else:
